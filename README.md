@@ -108,3 +108,21 @@ Earlier testing files may remain in ignored `data/public-test/`; their saved URL
 For an explicitly authorized tunnel test, bind the isolated server to loopback, set `CAFE77_TRUST_LOCAL_PROXY=1` and use the selected local port in the cloudflared URL. Keep the one-time staff setup link private.
 
 Check process identity before stopping any stored PID, since Windows can reuse process IDs.
+
+## GitHub Actions releases
+
+GitHub Actions runs `.github/workflows/staging.yml` on pushes to `main` and `release/**`. It installs from `package-lock.json`, runs the application and Workers/D1 test suites, saves the built frontend, applies pending staging D1 migrations, and deploys the staging Worker. A failed check or migration prevents deployment. Staging deployments share one concurrency group and are not force-cancelled while running.
+
+Production is a separate manual workflow: `.github/workflows/production.yml`. In Actions, start **Release to production** and enter the run ID of a successful staging workflow. The workflow verifies the run came from `main` or `release/**`, then uses that run's commit and frontend artifact for the production deployment. It does not run automatically on pushes.
+
+Create GitHub Environments named `staging` and `production`. Add a `CLOUDFLARE_API_TOKEN` secret to each environment. Create each token for its corresponding Cloudflare account with only **Workers Scripts Edit** and **D1 Edit** permissions. The staging account and D1 binding are already in `wrangler.jsonc`. Add these environment variables to `production` using the production account's existing resource values:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_D1_DATABASE_ID`
+- `CLOUDFLARE_D1_DATABASE_NAME`
+- `CLOUDFLARE_WORKER_NAME`
+- `CAFE77_PRODUCTION_D1_MIGRATIONS_RECONCILED=true` only after checking the live D1 migration history
+
+The production workflow generates its Wrangler config at runtime and does not save these values in the repository. It deploys the Worker on its `workers.dev` hostname. If GitHub artifact retention is changed, the selected staging artifact must still be available when production is started.
+
+Before the first production release, verify the production D1 database is paired with this migration history. `0001_cafe77.sql` is a fresh-database baseline and must only run against a new, empty D1 database; `0002_order_checkout.sql` is additive. Reconcile any existing production database and its `d1_migrations` ledger before setting the readiness variable. Later schema changes should be additive and compatible with the currently deployed Worker. No Cloudflare resources are created by these workflows.

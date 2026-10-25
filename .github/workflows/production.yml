@@ -1,0 +1,162 @@
+name: Release to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      staging_run_id:
+        description: Successful "Build and deploy staging" run ID to promote
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify-staging-run:
+    name: Verify selected staging release
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.verify.outputs.sha }}
+    steps:
+      - name: Validate successful staging run
+        id: verify
+        uses: actions/github-script@v7
+        env:
+          STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+        with:
+          script: |
+            const rawId = process.env.STAGING_RUN_ID;
+            if (!/^\d+$/.test(rawId ?? '')) {
+              core.setFailed('staging_run_id must be a numeric GitHub Actions run ID.');
+              return;
+            }
+
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(rawId),
+            });
+
+            const workflowPath = run.path.split('@')[0];
+            const allowedBranch = run.head_branch === 'main' || run.head_branch.startsWith('release/');
+            if (
+              workflowPath !== '.github/workflows/staging.yml' ||
+              run.event !== 'push' ||
+              run.status !== 'completed' ||
+              run.conclusion !== 'success' ||
+              !allowedBranch
+            ) {
+              core.setFailed('The selected run must be a successful staging workflow run from main or release/**.');
+              return;
+            }
+
+            core.setOutput('sha', run.head_sha);
+            core.info(`Promoting tested commit ${run.head_sha} from ${run.head_branch}.`);
+
+  deploy-production:
+    name: Deploy selected release to production
+    needs: verify-staging-run
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out tested source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify-staging-run.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Retrieve tested frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: cafe77-frontend-dist
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.staging_run_id }}
+          github-token: ${{ github.token }}
+          path: dist/
+
+      - name: Create production Wrangler configuration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_DATABASE_ID: ${{ vars.CLOUDFLARE_D1_DATABASE_ID }}
+          CLOUDFLARE_D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME }}
+          CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
+          CONFIG_PATH: ${{ runner.temp }}/wrangler-production.json
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          import { resolve } from 'node:path';
+
+          const required = [
+            'CLOUDFLARE_ACCOUNT_ID',
+            'CLOUDFLARE_D1_DATABASE_ID',
+            'CLOUDFLARE_D1_DATABASE_NAME',
+            'CLOUDFLARE_WORKER_NAME',
+          ];
+          for (const key of required) {
+            if (!process.env[key]) throw new Error(`Missing production GitHub Environment variable: ${key}`);
+          }
+          if (!/^[0-9a-f]{32}$/i.test(process.env.CLOUDFLARE_ACCOUNT_ID)) {
+            throw new Error('CLOUDFLARE_ACCOUNT_ID must be a 32-character Cloudflare account ID.');
+          }
+          if (!/^[0-9a-f-]{36}$/i.test(process.env.CLOUDFLARE_D1_DATABASE_ID)) {
+            throw new Error('CLOUDFLARE_D1_DATABASE_ID must be a D1 database UUID.');
+          }
+          if (!/^[a-z0-9-]+$/.test(process.env.CLOUDFLARE_WORKER_NAME)) {
+            throw new Error('CLOUDFLARE_WORKER_NAME may contain lowercase letters, numbers, and hyphens.');
+          }
+
+          const root = process.cwd();
+          const config = {
+            name: process.env.CLOUDFLARE_WORKER_NAME,
+            account_id: process.env.CLOUDFLARE_ACCOUNT_ID,
+            compatibility_date: '2026-10-06',
+            compatibility_flags: ['nodejs_compat'],
+            workers_dev: true,
+            preview_urls: false,
+            observability: { enabled: true },
+            main: resolve(root, 'workers/app.ts'),
+            assets: {
+              directory: resolve(root, 'dist'),
+              binding: 'ASSETS',
+              not_found_handling: 'single-page-application',
+              run_worker_first: ['/api/*', '/uploads/*'],
+            },
+            d1_databases: [{
+              binding: 'DB',
+              database_name: process.env.CLOUDFLARE_D1_DATABASE_NAME,
+              database_id: process.env.CLOUDFLARE_D1_DATABASE_ID,
+              migrations_dir: resolve(root, 'migrations'),
+            }],
+          };
+          writeFileSync(process.env.CONFIG_PATH, JSON.stringify(config, null, 2));
+          NODE
+
+      - name: Confirm production D1 migration history is reconciled
+        env:
+          RECONCILED: ${{ vars.CAFE77_PRODUCTION_D1_MIGRATIONS_RECONCILED }}
+        run: |
+          if [ "$RECONCILED" != "true" ]; then
+            echo "Set CAFE77_PRODUCTION_D1_MIGRATIONS_RECONCILED=true in the production Environment only after confirming the live D1 migration ledger matches this repository."
+            exit 1
+          fi
+
+      - name: Apply production D1 migrations
+        run: npx wrangler d1 migrations apply DB --remote --config "$CONFIG_PATH"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CONFIG_PATH: ${{ runner.temp }}/wrangler-production.json
+
+      - name: Deploy production Worker and tested assets
+        run: npx wrangler deploy --config "$CONFIG_PATH"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CONFIG_PATH: ${{ runner.temp }}/wrangler-production.json

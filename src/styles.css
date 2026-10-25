@@ -1309,6 +1309,14 @@ small {
 .list-heading .live-note {
   margin: 0;
 }
+.sound-alert-toggle {
+  width: 44px;
+  min-width: 44px;
+  padding: 10px;
+}
+.sound-alert-toggle[aria-pressed="false"] svg {
+  opacity: 0.45;
+}
 .order-list {
   display: flex;
   flex-direction: column;

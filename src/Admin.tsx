@@ -26,6 +26,8 @@ import {
   Clock,
   MessageCircle,
   Download,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import QRCode from "qrcode";
 import { api } from "./api";
@@ -1042,14 +1044,21 @@ export default function Admin() {
                 {tab === "orders" && (
                   <div className="list-actions">
                     <button
-                      className="btn"
+                      className="btn secondary sound-alert-toggle"
                       aria-pressed={soundEnabled}
+                      aria-label={
+                        soundEnabled
+                          ? "Mute sound alerts"
+                          : "Enable sound alerts"
+                      }
                       onClick={() => void toggleSound()}
                       title="Bell for new orders and customer messages. Enabling plays a test bell."
                     >
-                      {soundEnabled
-                        ? "Mute sound alerts"
-                        : "Enable sound alerts"}
+                      {soundEnabled ? (
+                        <Bell size={20} aria-hidden="true" />
+                      ) : (
+                        <BellOff size={20} aria-hidden="true" />
+                      )}
                     </button>
                     {soundError && <span role="status">{soundError}</span>}
                     <span className="live-note">
