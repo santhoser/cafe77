@@ -1,4 +1,5 @@
 import TaxLines from "./TaxLines";
+import ItemImages from "./ItemImages";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -483,10 +484,10 @@ function Menu() {
             >
               <X />
             </button>
-            <img
-              className="detail-image"
-              src={detail.images[0] || "/illustrations/coffee.svg"}
-              alt={detail.name}
+            <ItemImages
+              key={JSON.stringify([detail.id, detail.images])}
+              images={detail.images}
+              name={detail.name}
             />
             <div className="modal-body">
               <span className="eyebrow red">
@@ -519,14 +520,6 @@ function Menu() {
                   <strong>Ingredients:</strong> {detail.ingredients}
                 </p>
               )}
-              {detail.images.slice(1).map((url) => (
-                <img
-                  className="detail-extra"
-                  key={url}
-                  src={url}
-                  alt={detail.name}
-                />
-              ))}
               {detail.video && (
                 <a href={detail.video} target="_blank" rel="noreferrer">
                   Watch on YouTube

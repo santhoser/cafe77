@@ -813,15 +813,48 @@ small {
   display: grid;
   place-items: center;
 }
+.item-images {
+  position: relative;
+  touch-action: pan-y pinch-zoom;
+}
 .detail-image {
+  display: block;
   height: 260px;
   width: 100%;
   object-fit: cover;
 }
-.detail-extra {
-  width: 100%;
-  margin: 10px 0;
-  border-radius: 8px;
+.image-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fffdf9;
+  color: var(--red);
+  box-shadow: 0 2px 8px #30201c26;
+}
+.image-arrow:hover {
+  background: var(--gold);
+}
+.image-arrow.previous {
+  left: 12px;
+}
+.image-arrow.next {
+  right: 12px;
+}
+.image-position {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: #30201cbb;
+  color: white;
+  font-size: 12px;
 }
 .item-modal h2 {
   margin: 15px 0;
