@@ -30,7 +30,7 @@ await db.exec(
     .filter((line) => !line.startsWith("--"))
     .join("\n"),
 );
-await db.exec(readFileSync("migrations/0002_order_checkout.sql", "utf8"));
+
 const setup = await mf.dispatchFetch("http://127.0.0.1:5176/api/setup", {
   method: "POST",
   headers: { "Content-Type": "application/json" },

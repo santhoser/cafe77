@@ -32,7 +32,7 @@ test("actual workerd/D1 runtime: setup, auth, atomic order/payment, uploads and 
         .filter((line) => !line.startsWith("--"))
         .join("\n"),
     );
-    await db.exec(readFileSync("migrations/0002_order_checkout.sql", "utf8"));
+
     const request = async (
       path: string,
       method = "GET",
@@ -88,7 +88,7 @@ test("actual workerd/D1 runtime: setup, auth, atomic order/payment, uploads and 
     );
     assert.equal(tables.data.length, 15);
     const menu = await request("/menu?table=" + tables.data[0].token);
-    assert.equal(menu.data.items.length, 228);
+    assert.equal(menu.data.items.length, 153);
     const input = {
       table: tables.data[0].token,
       name: "Runtime customer",
@@ -304,6 +304,87 @@ test("actual workerd/D1 runtime: setup, auth, atomic order/payment, uploads and 
       ((await db.prepare("SELECT count(*) AS n FROM payments").first()) as any)
         .n,
       2,
+    );
+    const originalCode = menu.data.items[0].code;
+    const groupsCreated = await Promise.all(
+      [1, 2].map(() =>
+        request(
+          "/admin/groups",
+          "POST",
+          { name: "Runtime Code Group" },
+          login.cookie,
+        ),
+      ),
+    );
+    assert.deepEqual(
+      groupsCreated.map((r) => r.status),
+      [200, 200],
+    );
+    let catalogue = (
+      await request("/admin/menu", "GET", undefined, login.cookie)
+    ).data;
+    const groups = catalogue.groups.filter(
+      (g: any) => g.name === "Runtime Code Group",
+    );
+    assert.notEqual(groups[0].code, groups[1].code);
+    const creates = await Promise.all(
+      [1, 2].map((n) =>
+        request(
+          "/admin/menu",
+          "POST",
+          {
+            ...catalogue.items[0],
+            groupId: groups[0].id,
+            name: `Runtime code ${n}`,
+            code: "ZZ999",
+          },
+          login.cookie,
+        ),
+      ),
+    );
+    assert.deepEqual(
+      creates.map((r) => r.status),
+      [200, 200],
+    );
+    catalogue = (await request("/admin/menu", "GET", undefined, login.cookie))
+      .data;
+    const createdItems = catalogue.items.filter((i: any) =>
+      i.name.startsWith("Runtime code "),
+    );
+    assert.equal(new Set(createdItems.map((i: any) => i.code)).size, 2);
+    assert.equal(
+      (
+        await request(
+          `/admin/menu/${createdItems[0].id}`,
+          "PUT",
+          { ...createdItems[0], codeNumber: createdItems[1].code.slice(2) },
+          login.cookie,
+        )
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await request(
+          `/admin/groups/${groups[0].id}`,
+          "PUT",
+          { ...groups[0], code: "ZX" },
+          login.cookie,
+        )
+      ).status,
+      200,
+    );
+    const updatedItems = (
+      await request("/admin/menu", "GET", undefined, login.cookie)
+    ).data.items;
+    assert.ok(
+      updatedItems
+        .filter((i: any) => i.groupId === groups[0].id)
+        .every((i: any) => i.code.startsWith("ZX")),
+    );
+    assert.equal(
+      (await request("/orders/" + placed.data.token)).data.items[0].code,
+      originalCode,
     );
   } finally {
     await mf.dispose();

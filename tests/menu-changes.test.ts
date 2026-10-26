@@ -234,7 +234,7 @@ test("menu history, counter-only access, custom charges and appended payment", a
     );
     const fee = (
       await call("/admin/menu", "GET", undefined, owner)
-    ).data.items.find((i: any) => i.code === "FEE-1");
+    ).data.items.find((i: any) => i.name === "Service fee");
     const token = (await call("/admin/tables", "GET", undefined, owner)).data[0]
       .token;
     assert.equal(

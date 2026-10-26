@@ -35,6 +35,7 @@ export interface Restaurant {
 }
 export interface Group {
   id: number;
+  code: string;
   name: string;
   image: string;
   active: boolean;

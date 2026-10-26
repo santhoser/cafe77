@@ -11,17 +11,14 @@ test("fresh SQLite and D1 baseline have the complete identical Excel catalogue",
   try {
     seed(local);
     d1.exec("PRAGMA foreign_keys=ON");
-    assert.deepEqual(readdirSync("migrations"), [
-      "0001_cafe77.sql",
-      "0002_order_checkout.sql",
-    ]);
+    assert.deepEqual(readdirSync("migrations"), ["0001_cafe77.sql"]);
     d1.exec(readFileSync("migrations/0001_cafe77.sql", "utf8"));
-    d1.exec(readFileSync("migrations/0002_order_checkout.sql", "utf8"));
+
     const select =
-      "SELECT id,group_id,code,name,price,images,today_special,dashboard_fav,active,ran_out FROM menu ORDER BY id";
+      "SELECT id,group_id,code,name,price,details,images,today_special,dashboard_fav,active,ran_out FROM menu ORDER BY id";
     assert.deepEqual(local.prepare(select).all(), d1.prepare(select).all());
-    assert.equal(catalogue.items.length, 228);
-    assert.equal(catalogue.groups.length, 25);
+    assert.equal(catalogue.items.length, 153);
+    assert.equal(catalogue.groups.length, 22);
     assert.deepEqual(
       d1
         .prepare(select)
@@ -32,6 +29,7 @@ test("fresh SQLite and D1 baseline have the complete identical Excel catalogue",
           code: row.code,
           name: row.name,
           price: row.price,
+          details: row.details,
           images: JSON.parse(String(row.images)),
           todaySpecial: Boolean(row.today_special),
           dashboardFav: Boolean(row.dashboard_fav),
@@ -41,16 +39,32 @@ test("fresh SQLite and D1 baseline have the complete identical Excel catalogue",
     assert.deepEqual(
       local
         .prepare(
-          "SELECT id,name,image,sort,counter_only,customer_visible FROM groups ORDER BY sort",
+          "SELECT id,code,name,image,sort,counter_only,customer_visible FROM groups ORDER BY sort",
         )
         .all(),
       d1
         .prepare(
-          "SELECT id,name,image,sort,counter_only,customer_visible FROM groups ORDER BY sort",
+          "SELECT id,code,name,image,sort,counter_only,customer_visible FROM groups ORDER BY sort",
         )
         .all(),
     );
     for (const db of [local, d1]) {
+      assert.equal(
+        db
+          .prepare(
+            "SELECT count(*) AS n FROM groups WHERE active<>1 OR counter_only<>0",
+          )
+          .get()?.n,
+        0,
+      );
+      assert.equal(
+        db
+          .prepare(
+            "SELECT count(*) AS n FROM menu WHERE active<>1 OR ran_out<>0 OR show_calories<>0 OR show_ingredients<>0 OR today_special<>0 OR dashboard_fav<>0",
+          )
+          .get()?.n,
+        0,
+      );
       assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
       assert.equal(db.prepare("SELECT count(*) AS n FROM users").get()?.n, 0);
       assert.equal(
@@ -60,12 +74,12 @@ test("fresh SQLite and D1 baseline have the complete identical Excel catalogue",
       assert.equal(
         db.prepare("SELECT count(*) AS n FROM menu WHERE today_special=1").get()
           ?.n,
-        8,
+        0,
       );
       assert.equal(
         db.prepare("SELECT count(*) AS n FROM menu WHERE dashboard_fav=1").get()
           ?.n,
-        12,
+        0,
       );
     }
     const settings = JSON.parse(
@@ -78,6 +92,11 @@ test("fresh SQLite and D1 baseline have the complete identical Excel catalogue",
     assert.equal(settings.sgstRate, 2.5);
     assert.equal(settings.upiEnabled, false);
     for (const item of catalogue.items) {
+      const group = catalogue.groups.find((g) => g.id === item.groupId)!;
+      assert.equal(
+        item.code,
+        group.code + (catalogue.items.indexOf(item) + 101),
+      );
       assert.ok(Number.isSafeInteger(item.price));
       for (const image of item.images)
         assert.ok(existsSync("public" + image), image);
@@ -89,7 +108,7 @@ test("fresh SQLite and D1 baseline have the complete identical Excel catalogue",
       local.prepare("SELECT price FROM menu WHERE id=1").get()?.price,
       12345,
     );
-    assert.equal(local.prepare("SELECT count(*) AS n FROM menu").get()?.n, 228);
+    assert.equal(local.prepare("SELECT count(*) AS n FROM menu").get()?.n, 153);
   } finally {
     local.close();
     d1.close();

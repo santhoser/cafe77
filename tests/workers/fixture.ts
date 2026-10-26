@@ -12,12 +12,6 @@ export function openWorkersDatabase() {
       "utf8",
     ),
   );
-  db.exec(
-    readFileSync(
-      new URL("../../migrations/0002_order_checkout.sql", import.meta.url),
-      "utf8",
-    ),
-  );
   return db;
 }
 /** SQL integration double: real SQLite, D1-shaped async API and rollback semantics.

@@ -1206,6 +1206,7 @@ export default function Admin() {
                       onClick={() =>
                         setEditGroup({
                           id: 0,
+                          code: "",
                           name: "",
                           image: "",
                           active: true,
@@ -1306,8 +1307,8 @@ export default function Admin() {
               {filteredMenuGroups.map((g) => (
                 <section className="panel admin-menu-group" key={g.id}>
                   <div className="section-head">
-                    <h3>
-                      {g.name}{" "}
+                    <h3 aria-label={g.name}>
+                      {g.name} <small>({g.code})</small>{" "}
                       {!g.active && <span className="status">Inactive</span>}
                       {g.counterOnly && (
                         <span className="status">Counter only</span>
@@ -1643,9 +1644,10 @@ export default function Admin() {
                         />
                       )}
                       <ol>
-                        <li>Scan the QR with your phone</li>
-                        <li>Pick your favourites & place your order</li>
-                        <li>Relax. Pay at the counter.</li>
+                        <li>Scan the QR code with your phone</li>
+                        <li>Choose your favourites and place your order</li>
+                        <li>Relax while your food is prepared</li>
+                        <li>Pay at the counter when you’re ready to leave</li>
                       </ol>
                       <a
                         className="btn secondary no-print"
@@ -2800,6 +2802,9 @@ export default function Admin() {
                     editItem.id ? "PUT" : "POST",
                     {
                       ...editItem,
+                      codeNumber: editItem.id
+                        ? editItem.code.slice(2)
+                        : undefined,
                       tagIds: editItem.tags.map((tag) => tag.id),
                       userComments: menuUserComments,
                     },
@@ -2824,19 +2829,43 @@ export default function Admin() {
                   />
                 </Field>
                 <Field label="Item code">
-                  <input
-                    required
-                    maxLength={30}
-                    value={editItem.code}
-                    onChange={(e) =>
-                      setEditItem((i) =>
-                        i ? { ...i, code: e.target.value } : i,
-                      )
-                    }
-                  />
+                  {editItem.id ? (
+                    <span className="item-code-input">
+                      <span>
+                        {
+                          menu.groups.find((g) => g.id === editItem.groupId)
+                            ?.code
+                        }
+                      </span>
+                      <input
+                        required
+                        aria-label="Item code"
+                        inputMode="numeric"
+                        pattern="[1-9][0-9]{2}"
+                        minLength={3}
+                        maxLength={3}
+                        value={editItem.code.slice(2)}
+                        onChange={(e) =>
+                          setEditItem((i) =>
+                            i
+                              ? {
+                                  ...i,
+                                  code:
+                                    i.code.slice(0, 2) +
+                                    e.target.value.replace(/\D/g, ""),
+                                }
+                              : i,
+                          )
+                        }
+                      />
+                    </span>
+                  ) : (
+                    <input readOnly value="Assigned automatically when saved" />
+                  )}
                 </Field>
                 <Field label="Group">
                   <select
+                    aria-label="Group"
                     value={editItem.groupId}
                     onChange={(e) =>
                       setEditItem((i) =>
@@ -3099,6 +3128,24 @@ export default function Admin() {
                     )
                   }
                 />
+              </Field>
+              <Field label="Group code">
+                {editGroup.id ? (
+                  <input
+                    required
+                    minLength={2}
+                    maxLength={2}
+                    pattern="[A-Za-z]{2}"
+                    value={editGroup.code}
+                    onChange={(e) =>
+                      setEditGroup((g) =>
+                        g ? { ...g, code: e.target.value.toUpperCase() } : g,
+                      )
+                    }
+                  />
+                ) : (
+                  <input readOnly value="Assigned automatically when saved" />
+                )}
               </Field>
               <Field label="Display order">
                 <input

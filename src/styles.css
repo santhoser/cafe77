@@ -802,6 +802,17 @@ small {
 .item-modal {
   position: relative;
 }
+.item-code-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.item-code-input > span {
+  font-weight: 600;
+}
+.item-code-input input {
+  width: 100%;
+}
 .close-modal {
   position: absolute;
   top: 15px;
