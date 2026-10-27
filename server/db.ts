@@ -1,4 +1,5 @@
 import catalogue from "../shared/menu-catalogue.json";
+import { generateGroupCode } from "../shared/menu-codes.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -113,6 +114,34 @@ export function openDatabase(
       if (!menuColumns.some((column) => column.name === name))
         db.exec(`ALTER TABLE menu ADD COLUMN ${name} ${definition}`);
     const groupColumns = db.prepare("PRAGMA table_info(groups)").all();
+    if (!groupColumns.some((column) => column.name === "code")) {
+      db.exec("ALTER TABLE groups ADD COLUMN code TEXT");
+      const used = new Set<string>();
+      for (const group of db
+        .prepare("SELECT id,name FROM groups ORDER BY sort,id")
+        .all()) {
+        const code = generateGroupCode(String(group.name), used);
+        used.add(code);
+        db.prepare("UPDATE groups SET code=? WHERE id=?").run(code, group.id);
+      }
+      const items = db
+        .prepare(
+          "SELECT m.id,g.code FROM menu m JOIN groups g ON g.id=m.group_id ORDER BY m.id",
+        )
+        .all();
+      if (items.length > 899)
+        throw Error("Cannot assign three-digit numbers to more than 899 items");
+      // Temporary codes avoid clashes with existing names during the local upgrade.
+      db.exec("UPDATE menu SET code='__upgrade__' || id");
+      items.forEach((item, index) =>
+        db
+          .prepare("UPDATE menu SET code=? WHERE id=?")
+          .run(String(item.code) + (index + 101), item.id),
+      );
+    }
+    db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS groups_code_unique ON groups(upper(code)); CREATE UNIQUE INDEX IF NOT EXISTS menu_number_unique ON menu(substr(code,3))",
+    );
     if (!groupColumns.some((column) => column.name === "counter_only"))
       db.exec(
         "ALTER TABLE groups ADD COLUMN counter_only INTEGER NOT NULL DEFAULT 0",
@@ -153,21 +182,19 @@ export function seed(db: DatabaseSync) {
   if (db.prepare("SELECT id FROM groups LIMIT 1").get()) return;
   transaction(db, () => {
     for (const group of catalogue.groups)
-      db.prepare("INSERT INTO groups(id,name,image,sort) VALUES(?,?,?,?)").run(
-        group.id,
-        group.name,
-        group.image,
-        group.sort,
-      );
+      db.prepare(
+        "INSERT INTO groups(id,code,name,image,sort) VALUES(?,?,?,?,?)",
+      ).run(group.id, group.code, group.name, group.image, group.sort);
     for (const item of catalogue.items)
       db.prepare(
-        "INSERT INTO menu(id,group_id,code,name,price,images,today_special,dashboard_fav) VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO menu(id,group_id,code,name,price,details,images,today_special,dashboard_fav) VALUES(?,?,?,?,?,?,?,?,?)",
       ).run(
         item.id,
         item.groupId,
         item.code,
         item.name,
         item.price,
+        item.details,
         JSON.stringify(item.images),
         Number(item.todaySpecial),
         Number(item.dashboardFav),

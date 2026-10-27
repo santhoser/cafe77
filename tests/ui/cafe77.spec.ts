@@ -3,6 +3,103 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { unzipSync } from "fflate";
 
+test("generated group and item codes can be edited, remain unique, and follow group moves", async ({
+  page,
+}) => {
+  await page.goto("/admin");
+  await page.getByLabel("Username", { exact: true }).fill("reviewowner");
+  await page
+    .getByLabel("Password", { exact: true })
+    .fill("Browser-Test-Password-42");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Manage menu", exact: true }).click();
+  await page.getByRole("button", { name: "New group", exact: true }).click();
+  const groupDialog = page.getByRole("dialog", {
+    name: "Edit menu group",
+    exact: true,
+  });
+  await expect(
+    groupDialog.getByLabel("Group code", { exact: true }),
+  ).toHaveAttribute("readonly", "");
+  await groupDialog
+    .getByLabel("Group name", { exact: true })
+    .fill("Browser Code Group");
+  await groupDialog
+    .getByRole("button", { name: "Save group", exact: true })
+    .click();
+  const section = page.locator(".admin-menu-group").filter({
+    has: page.getByRole("heading", {
+      name: "Browser Code Group",
+      exact: false,
+    }),
+  });
+  await section
+    .getByRole("button", { name: "Edit group", exact: true })
+    .click();
+  await expect(
+    groupDialog.getByLabel("Group code", { exact: true }),
+  ).toHaveValue(/[A-Z]{2}/);
+  await groupDialog.getByLabel("Group code", { exact: true }).fill("CF");
+  await groupDialog
+    .getByRole("button", { name: "Save group", exact: true })
+    .click();
+  await expect(groupDialog.locator(".alert")).toContainText(
+    "group code already exists",
+  );
+  await groupDialog.getByLabel("Group code", { exact: true }).fill("QZ");
+  await groupDialog
+    .getByRole("button", { name: "Save group", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add item", exact: true }).click();
+  const itemDialog = page.getByRole("dialog", {
+    name: "Edit menu item",
+    exact: true,
+  });
+  await expect(
+    itemDialog.getByLabel("Item code", { exact: true }),
+  ).toHaveAttribute("readonly", "");
+  await itemDialog
+    .getByLabel("Name", { exact: true })
+    .fill("Browser code item");
+  await itemDialog
+    .getByLabel("Group", { exact: true })
+    .selectOption({ label: "Browser Code Group" });
+  await itemDialog.getByLabel("Price (₹)", { exact: true }).fill("12.50");
+  await itemDialog
+    .getByRole("button", { name: "Save menu item", exact: true })
+    .click();
+  const row = page
+    .locator(".admin-menu-row")
+    .filter({ hasText: "Browser code item" });
+  await expect(row).toContainText(/QZ\d{3}/);
+  await row.getByRole("button", { name: "Edit", exact: true }).click();
+  await itemDialog.getByLabel("Item code", { exact: true }).fill("101");
+  await itemDialog
+    .getByRole("button", { name: "Save menu item", exact: true })
+    .click();
+  await expect(itemDialog.locator(".alert")).toContainText(
+    "item number already exists",
+  );
+  await itemDialog.getByLabel("Item code", { exact: true }).fill("998");
+  await itemDialog
+    .getByLabel("Group", { exact: true })
+    .selectOption({ label: "Cold Coffee" });
+  await expect(itemDialog.locator(".item-code-input > span")).toHaveText("CF");
+  await itemDialog
+    .getByRole("button", { name: "Save menu item", exact: true })
+    .click();
+  await expect(row).toContainText("CF998");
+  await page
+    .getByRole("button", { name: "Table QR codes", exact: true })
+    .click();
+  await expect(page.locator(".qr-sheet").first().locator("li")).toHaveText([
+    "Scan the QR code with your phone",
+    "Choose your favourites and place your order",
+    "Relax while your food is prepared",
+    "Pay at the counter when you’re ready to leave",
+  ]);
+});
+
 test("Manage menu combines name/tag search and stock/special/favourite filters", async ({
   browser,
 }) => {
@@ -115,7 +212,7 @@ test("Manage menu combines name/tag search and stock/special/favourite filters",
   await expect(
     filters.getByRole("checkbox", { name: "Today’s special", exact: true }),
   ).not.toBeChecked();
-  await search.fill("FILTER-HIDDEN");
+  await search.fill("Filter hidden");
   await filters
     .getByLabel("Item status filter", { exact: true })
     .selectOption("inactive");
@@ -209,7 +306,7 @@ test("owner deletion uses app confirmations and linked groups stay protected", a
     page.getByRole("heading", { name: "Temporary empty group", exact: true }),
   ).toHaveCount(0);
   await page
-    .getByRole("button", { name: "Delete item Tiramisu", exact: true })
+    .getByRole("button", { name: "Delete item Almond Muffin", exact: true })
     .click();
   await page
     .getByRole("alertdialog")
@@ -217,19 +314,19 @@ test("owner deletion uses app confirmations and linked groups stay protected", a
     .click();
   await expect(
     page.getByRole("button", {
-      name: "Delete item Tiramisu",
+      name: "Delete item Almond Muffin",
       exact: true,
     }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Delete item Tiramisu", exact: true })
+    .getByRole("button", { name: "Delete item Almond Muffin", exact: true })
     .click();
   await page
     .getByRole("alertdialog")
     .getByRole("button", { name: "Delete item", exact: true })
     .click();
   await expect(
-    page.locator(".admin-menu-row").filter({ hasText: "Tiramisu" }),
+    page.locator(".admin-menu-row").filter({ hasText: "Almond Muffin" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Open staff navigation" }).click();
   await page
@@ -315,9 +412,7 @@ test("mobile table checkout through staff payment, receipt and close", async ({
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await customer
-    .getByRole("textbox", { name: "Search menu" })
-    .fill("Affogatto");
+  await customer.getByRole("textbox", { name: "Search menu" }).fill("Affogato");
   await customer.getByRole("button", { name: "Add", exact: true }).click();
   await customer
     .getByRole("button", { name: "Open cart", exact: true })
@@ -510,7 +605,7 @@ test("cashier stock controls and narrow staff layout", async ({ browser }) => {
   await expect(
     p.getByRole("heading", { name: "Manage menu", exact: true }),
   ).toBeVisible();
-  const row = p.locator(".admin-menu-row").filter({ hasText: "Affogatto" });
+  const row = p.locator(".admin-menu-row").filter({ hasText: "Affogato" });
   await row.getByRole("checkbox", { name: "Available", exact: true }).uncheck();
   await expect(
     row.getByRole("checkbox", { name: "Out of stock", exact: true }),
@@ -572,28 +667,22 @@ test("counter order, customer conversation, and Excel history export", async ({
   await admin.getByRole("button", { name: "Add order" }).click();
   const dialog = admin.getByRole("dialog", { name: "Add counter order" });
   await dialog.getByLabel("Customer name").fill("Counter guest");
-  await expect(
-    dialog.getByRole("heading", { name: "Today's picks" }),
-  ).toBeVisible();
-  await expect(
-    dialog.getByRole("heading", { name: "Dashboard favourites" }),
-  ).toBeVisible();
+  await dialog.getByLabel("Find item by code or name").fill("CF101");
   await dialog
-    .locator(".counter-quick-picks")
-    .filter({ hasText: "Today's picks" })
-    .getByRole("button", { name: "Add Affogatto" })
+    .getByRole("listbox", { name: "Matching menu items" })
+    .getByRole("button", { name: "Add Affogato" })
     .click();
-  await dialog.getByLabel("Find item by code or name").fill("I001");
+  await dialog.getByLabel("Find item by code or name").fill("CF101");
   await expect(
     dialog
       .getByRole("listbox", { name: "Matching menu items" })
-      .getByRole("button", { name: "Add Affogatto" }),
+      .getByRole("button", { name: "Add Affogato" }),
   ).toBeVisible();
   await dialog.getByLabel("Find item by code or name").press("Enter");
   await expect(
     dialog
       .locator(".counter-selected-row")
-      .filter({ hasText: "Affogatto" })
+      .filter({ hasText: "Affogato" })
       .locator("b"),
   ).toHaveText("2");
   const orderResponse = admin.waitForResponse(
@@ -679,7 +768,10 @@ test("owner menu report and counter-only fee can be added to an open bill", asyn
   await itemDialog
     .getByLabel("Name", { exact: true })
     .fill("Browser service fee");
-  await itemDialog.getByLabel("Item code").fill("BROWSER-FEE");
+  await expect(itemDialog.getByLabel("Item code")).toHaveAttribute(
+    "readonly",
+    "",
+  );
   await itemDialog
     .getByRole("combobox", { name: "Group" })
     .selectOption({ label: "Browser counter fees" });
@@ -695,7 +787,7 @@ test("owner menu report and counter-only fee can be added to an open bill", asyn
     .fill("Browser price review");
   await itemDialog.getByRole("button", { name: "Save menu item" }).click();
   await page.getByRole("button", { name: "Menu reports" }).click();
-  await page.getByLabel("Search menu history").fill("BROWSER-FEE");
+  await page.getByLabel("Search menu history").fill("Browser service fee");
   await page.getByRole("checkbox", { name: "Price changes" }).check();
   await expect(page.getByText("Browser price review")).toBeVisible();
   const download = page.waitForEvent("download");
@@ -709,7 +801,7 @@ test("owner menu report and counter-only fee can be added to an open bill", asyn
   await createDialog.getByLabel("Customer name").fill("Browser fee guest");
   await createDialog
     .getByLabel("Find item by code or name")
-    .fill("BROWSER-FEE");
+    .fill("Browser service fee");
   await createDialog
     .getByRole("listbox", { name: "Matching menu items" })
     .getByRole("button", { name: "Add Browser service fee" })
@@ -753,7 +845,10 @@ test("tags filter customer items and visible counter-only items require a counte
   await itemDialog
     .getByLabel("Name", { exact: true })
     .fill("Browser tagged item");
-  await itemDialog.getByLabel("Item code").fill("BROWSER-TAGGED-ITEM");
+  await expect(itemDialog.getByLabel("Item code")).toHaveAttribute(
+    "readonly",
+    "",
+  );
   await itemDialog.getByLabel("Price (₹)").fill("4.00");
   await itemDialog.getByRole("checkbox", { name: "Browser Eggless" }).check();
   await itemDialog.getByRole("button", { name: "Save menu item" }).click();
@@ -771,7 +866,10 @@ test("tags filter customer items and visible counter-only items require a counte
   await itemDialog
     .getByLabel("Name", { exact: true })
     .fill("Browser visible fee");
-  await itemDialog.getByLabel("Item code").fill("BROWSER-VISIBLE-FEE");
+  await expect(itemDialog.getByLabel("Item code")).toHaveAttribute(
+    "readonly",
+    "",
+  );
   await itemDialog
     .getByRole("combobox", { name: "Group" })
     .selectOption({ label: "Browser visible fees" });

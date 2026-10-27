@@ -1,3 +1,4 @@
+import { generateGroupCode, nextItemNumber } from "../shared/menu-codes.js";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { generateOrderNumber } from "../server/order-number.js";
@@ -60,7 +61,11 @@ const safeImage = z
   );
 const menuSchema = z.object({
   groupId: z.number().int().positive(),
-  code: z.string().trim().min(1).max(30),
+  codeNumber: z
+    .string()
+    .regex(/^[1-9][0-9]{2}$/, "Use a three-digit number from 101 to 999")
+    .refine((v) => Number(v) >= 101, "Use a number from 101 to 999")
+    .optional(),
   name: z.string().trim().min(1).max(100),
   price: z.number().int().min(0).max(10000000),
   details: z.string().max(2000).default(""),
@@ -284,7 +289,7 @@ export async function handleApi(request: globalThis.Request, env: Env) {
       groups: (
         await db
           .prepare(
-            "SELECT id,name,image,active,sort,counter_only,customer_visible FROM groups WHERE active=1 AND (counter_only=0 OR customer_visible=1) AND deleted_at IS NULL ORDER BY sort,id",
+            "SELECT id,code,name,image,active,sort,counter_only,customer_visible FROM groups WHERE active=1 AND (counter_only=0 OR customer_visible=1) AND deleted_at IS NULL ORDER BY sort,id",
           )
           .all()
       ).map((g: any) => ({
@@ -733,7 +738,7 @@ export async function handleApi(request: globalThis.Request, env: Env) {
   const saveMenu = async (req: Request, res: Response) => {
     const u = await owner(req);
     const m = menuSchema.parse(req.body);
-    const { userComments, tagIds, ...menuInput } = m;
+    const { userComments, tagIds, codeNumber, ...menuInput } = m;
     if (new Set(tagIds).size !== tagIds.length) fail(400, "Duplicate tags");
     const tags = await db
       .prepare(
@@ -741,29 +746,6 @@ export async function handleApi(request: globalThis.Request, env: Env) {
       )
       .all(JSON.stringify(tagIds));
     if (tags.length !== tagIds.length) fail(400, "Choose valid tags");
-    if (
-      !(await db
-        .prepare("SELECT id FROM groups WHERE id=? AND deleted_at IS NULL")
-        .get(m.groupId))
-    )
-      fail(400, "Group not found");
-    const values = [
-      m.groupId,
-      m.code,
-      m.name,
-      m.price,
-      m.details,
-      m.calories,
-      +m.showCalories,
-      m.ingredients,
-      +m.showIngredients,
-      JSON.stringify(m.images),
-      m.video,
-      +m.active,
-      +m.ranOut,
-      +m.todaySpecial,
-      +m.dashboardFav,
-    ];
     await transaction(db, async () => {
       const id = req.params.id ? idParam(req) : 0;
       const old = id
@@ -774,8 +756,48 @@ export async function handleApi(request: globalThis.Request, env: Env) {
             .get(id)
         : null;
       if (id && !old) fail(404, "Item not found");
+      const group = await db
+        .prepare("SELECT code FROM groups WHERE id=? AND deleted_at IS NULL")
+        .get(m.groupId);
+      if (!group) fail(400, "Group not found");
+      const existingCodes = await db
+        .prepare("SELECT id,code FROM menu ORDER BY id")
+        .all();
+      let number: string;
+      try {
+        number = id
+          ? (codeNumber ?? String(old!.code).slice(-3))
+          : nextItemNumber(existingCodes.map((row: any) => String(row.code)));
+      } catch {
+        throw new HttpError(409, "All item numbers from 101 to 999 are in use");
+      }
+      if (
+        existingCodes.some(
+          (row: any) => row.id !== id && String(row.code).slice(-3) === number,
+        )
+      )
+        fail(409, "That item number already exists. Choose another number.");
+      const code = String(group!.code) + number;
+      const values = [
+        m.groupId,
+        code,
+        m.name,
+        m.price,
+        m.details,
+        m.calories,
+        +m.showCalories,
+        m.ingredients,
+        +m.showIngredients,
+        JSON.stringify(m.images),
+        m.video,
+        +m.active,
+        +m.ranOut,
+        +m.todaySpecial,
+        +m.dashboardFav,
+      ];
+
       const before = old ? item(old) : null;
-      const after = { ...menuInput, id, tags };
+      const after = { ...menuInput, code, id, tags };
       if (
         !menuHistoryValues(
           before,
@@ -823,7 +845,7 @@ export async function handleApi(request: globalThis.Request, env: Env) {
             userComments,
           ).values,
         );
-      await audit(u.username, "menu.save", { id: savedId, code: m.code });
+      await audit(u.username, "menu.save", { id: savedId, code });
     });
     res.json({ ok: true });
   };
@@ -850,64 +872,94 @@ export async function handleApi(request: globalThis.Request, env: Env) {
     });
     res.json({ ok: true });
   });
+  const groupSchema = z.object({
+    name: z.string().trim().min(1).max(100),
+    code: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{2}$/, "Use exactly two letters")
+      .optional(),
+    image: safeImage.default(""),
+    active: z.boolean().default(true),
+    sort: z.number().int().min(0).max(10000).default(0),
+    counterOnly: z.boolean().default(false),
+    customerVisible: z.boolean().default(false),
+  });
   app.post("/api/admin/groups", async (req, res) => {
     const u = await owner(req);
-    const g = z
-      .object({
-        name: z.string().trim().min(1).max(100),
-        image: safeImage.default(""),
-        active: z.boolean().default(true),
-        sort: z.number().int().min(0).max(10000).default(0),
-        counterOnly: z.boolean().default(false),
-        customerVisible: z.boolean().default(false),
-      })
-      .parse(req.body);
-    await db
-      .prepare(
-        "INSERT INTO groups(name,image,active,sort,counter_only,customer_visible) VALUES(?,?,?,?,?,?)",
-      )
-      .run(
-        g.name,
-        g.image,
-        +g.active,
-        g.sort,
-        +g.counterOnly,
-        +g.customerVisible,
-      );
-    await audit(u.username, "group.create", g);
+    // Ignore any supplied code on creation; only the server allocates it.
+    const g = groupSchema.omit({ code: true }).parse(req.body);
+    await transaction(db, async () => {
+      const groups = await db
+        .prepare("SELECT code FROM groups ORDER BY id")
+        .all();
+      let code: string;
+      try {
+        code = generateGroupCode(
+          g.name,
+          groups.map((row: any) => String(row.code)),
+        );
+      } catch {
+        throw new HttpError(409, "All two-letter group codes are in use");
+      }
+      await db
+        .prepare(
+          "INSERT INTO groups(code,name,image,active,sort,counter_only,customer_visible) VALUES(?,?,?,?,?,?,?)",
+        )
+        .run(
+          code,
+          g.name,
+          g.image,
+          +g.active,
+          g.sort,
+          +g.counterOnly,
+          +g.customerVisible,
+        );
+      await audit(u.username, "group.create", { ...g, code });
+    });
     res.json({ ok: true });
   });
   app.put("/api/admin/groups/:id", async (req, res) => {
     const u = await owner(req);
-    const g = z
-      .object({
-        name: z.string().trim().min(1).max(100),
-        image: safeImage,
-        active: z.boolean(),
-        sort: z.number().int().min(0).max(10000),
-        counterOnly: z.boolean().default(false),
-        customerVisible: z.boolean().default(false),
-      })
-      .parse(req.body);
-    if (
-      !(
+    const g = groupSchema.parse(req.body);
+    const id = idParam(req);
+    await transaction(db, async () => {
+      const old = await db
+        .prepare("SELECT code FROM groups WHERE id=? AND deleted_at IS NULL")
+        .get(id);
+      if (!old) fail(404, "Group not found");
+      const code = g.code ?? String(old!.code);
+      if (
         await db
-          .prepare(
-            "UPDATE groups SET name=?,image=?,active=?,sort=?,counter_only=?,customer_visible=? WHERE id=? AND deleted_at IS NULL",
-          )
-          .run(
-            g.name,
-            g.image,
-            +g.active,
-            g.sort,
-            +g.counterOnly,
-            +g.customerVisible,
-            idParam(req),
-          )
-      ).changes
-    )
-      fail(404, "Group not found");
-    await audit(u.username, "group.update", { id: req.params.id });
+          .prepare("SELECT id FROM groups WHERE upper(code)=? AND id<>?")
+          .get(code, id)
+      )
+        fail(409, "That group code already exists. Choose another code.");
+      await db
+        .prepare(
+          "UPDATE groups SET code=?,name=?,image=?,active=?,sort=?,counter_only=?,customer_visible=? WHERE id=? AND deleted_at IS NULL",
+        )
+        .run(
+          code,
+          g.name,
+          g.image,
+          +g.active,
+          g.sort,
+          +g.counterOnly,
+          +g.customerVisible,
+          id,
+        );
+      if (code !== old!.code)
+        await db
+          .prepare("UPDATE menu SET code=? || substr(code,3) WHERE group_id=?")
+          .run(code, id);
+      await audit(u.username, "group.update", {
+        id,
+        previousCode: old!.code,
+        code,
+      });
+    });
     res.json({ ok: true });
   });
   app.delete("/api/admin/groups/:id", async (req, res) => {

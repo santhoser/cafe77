@@ -252,10 +252,13 @@ test("100-line checkout and 100 current orders stay inside the 50-query free lim
   try {
     const result = await dispatch(db, "/api/orders", "POST", {
       ...input,
-      items: Array.from({ length: 100 }, (_, i) => ({
-        id: i + 1,
-        quantity: 1,
-      })),
+      items: (
+        db
+          .prepare(
+            "SELECT id FROM menu WHERE active=1 AND ran_out=0 ORDER BY id LIMIT 100",
+          )
+          .all() as { id: number }[]
+      ).map(({ id }) => ({ id, quantity: 1 })),
     });
     assert.equal(result.status, 201, JSON.stringify(result.data));
     assert.equal(result.data.order.items.length, 100);

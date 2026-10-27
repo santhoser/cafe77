@@ -254,14 +254,14 @@ for (const runtime of ["SQLite", "D1"] as const) {
   });
 }
 
-test("D1 additive checkout migration preserves existing snapshots and leaves historical payment mode unknown", () => {
+test("D1 combined baseline defaults historical-style orders to dine-in with unknown tender", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(readFileSync("migrations/0001_cafe77.sql", "utf8"));
     db.exec(
       "INSERT INTO orders(number,token,request_key,request_hash,table_id,name,created_at,amounts,restaurant) VALUES('old','old','old','old',1,'Historical','2026-10-01','{\"total\":10500,\"gst\":500}','{}'); INSERT INTO payments(order_id,kind,amount,actor,at) VALUES(1,'payment',10500,'staff','2026-10-01');",
     );
-    db.exec(readFileSync("migrations/0002_order_checkout.sql", "utf8"));
+
     const order = db.prepare("SELECT * FROM orders").get()!;
     assert.equal(order.order_type, "DineIn");
     assert.equal(order.payment_mode, null);

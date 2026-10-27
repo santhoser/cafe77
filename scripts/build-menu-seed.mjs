@@ -11,10 +11,15 @@ const ids = new Set(catalogue.groups.map((group) => group.id));
 const codes = new Set();
 for (const group of catalogue.groups) {
   statements.push(
-    `INSERT INTO groups(id,name,image,sort) VALUES(${group.id},${quote(group.name)},${quote(group.image)},${group.sort});`,
+    `INSERT INTO groups(id,code,name,image,sort) VALUES(${group.id},${quote(group.code)},${quote(group.name)},${quote(group.image)},${group.sort});`,
   );
 }
 for (const item of catalogue.items) {
+  if (item.todaySpecial !== false || item.dashboardFav !== false)
+    throw Error(
+      "Fresh menu must not preselect specials or dashboard favourites: " +
+        item.code,
+    );
   if (
     !ids.has(item.groupId) ||
     !Number.isSafeInteger(item.price) ||
@@ -24,11 +29,13 @@ for (const item of catalogue.items) {
     throw Error("Invalid catalogue item: " + item.code);
   codes.add(item.code);
   statements.push(
-    `INSERT INTO menu(id,group_id,code,name,price,images,today_special,dashboard_fav) VALUES(${item.id},${item.groupId},${quote(item.code)},${quote(item.name)},${item.price},${quote(JSON.stringify(item.images))},${Number(item.todaySpecial)},${Number(item.dashboardFav)});`,
+    `INSERT INTO menu(id,group_id,code,name,price,details,images,today_special,dashboard_fav) VALUES(${item.id},${item.groupId},${quote(item.code)},${quote(item.name)},${item.price},${quote(item.details)},${quote(JSON.stringify(item.images))},${Number(item.todaySpecial)},${Number(item.dashboardFav)});`,
   );
 }
 const path = new URL("migrations/0001_cafe77.sql", root);
-const schema = readFileSync(path, "utf8").split("-- BEGIN GENERATED MENU")[0];
+const schema = readFileSync(path, "utf8")
+  .replaceAll("\r\n", "\n")
+  .split("-- BEGIN GENERATED MENU")[0];
 writeFileSync(
   path,
   schema + "-- BEGIN GENERATED MENU\n" + statements.join("\n") + "\n",

@@ -205,7 +205,7 @@ test("D1 menu change history and counter charges survive guarded writes", async 
     const fee = (
       (await dispatch(db, "/api/admin/menu", "GET", undefined, owner))
         .data as any
-    ).items.find((i: any) => i.code === "FEE-D1");
+    ).items.find((i: any) => i.name === "Service fee");
     const publicMenu = (await dispatch(db, "/api/menu")).data as any;
     assert.equal(
       publicMenu.items.some((i: any) => i.id === fee.id),
